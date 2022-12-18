@@ -1,0 +1,169 @@
+#!/usr/bin/env zsh
+
+
+##
+_debug="${debug:=false}"
+_cmd="${cmd:=NULL}"
+_config="${config:=/usr/local/etc/backup-remote.conf.json}"
+_name="`basename ${0}`"
+
+
+##
+typeset -a _params=("user" "group" "src" "dst" "log.file" "status.file")
+##
+typeset -A _C
+## default config
+_C=(
+  user "user"
+  group "user"
+ 
+  src "/home/user/__BACKUPS/"
+  dst "user@server:~/__BACKUPS/"
+ 
+  log-file "/var/log/`basename ${0}`.log"
+  log-access "0660"
+  
+  status-file "/tmp/`basename ${0}`.status"
+  )
+
+
+
+### getJsonParam() 
+##
+getJsonParam() {
+  _param="${1}"
+  _Cparam="${2}"
+
+  _r="`jsonPath="${_param}" jsonFile="${_config}" json-conf`" || exit 2
+
+  _C[${_Cparam}]=${_r}
+  }
+
+### checkCmd()
+##
+checkCmd() {
+  printf "/i/ checking cmd .. \n"
+  
+
+  ## rm-status
+  [[ ${_cmd} == "rm-status" ]] && {
+    [[ -f ${_C[status-file]} ]] && \
+      rm -f ${_C[status-file]} && \
+        printf "/i/ status file ${_C[status-file]} removed .. \n" | tee -a ${_C[log-file]}
+    }
+  }
+
+
+### checkLogFile()
+## check log exist
+checkLogFile() {
+  [[ ! -f ${_C[log-file]} ]] && {
+    printf "/w/ ${_C[log-file]} not found. creating ..\n" | tee -a ${_C[log-file]}
+    touch ${_C[log-file]}
+    }
+  
+  ## fix log access
+  chown ${_C[user]}:${_C[group]} ${_C[log-file]}
+  chmod ${_C[log-access]} ${_C[log-file]}
+  }
+
+### checkStatusFile()
+## check status file
+checkStatusFile() {
+  [[ -f ${_C[status-file]} ]] && {
+    printf "/w/ ${_C[status-file]} exist. backup may be in progress?? \n" | tee -a ${_C[log-file]}
+    exit 1
+    }
+  }
+
+
+### delStatusFile()
+## delete status file after backups done
+delStatusFile() {
+  [[ -f ${_C[status-file]} ]] && {
+    printf "/i/ deleting ${_C[status-file]} ..\n" | tee -a ${_C[log-file]}
+    rm -f ${_C[status-file]}
+    }
+  }
+
+
+### createStatusFile()
+##
+createStatusFile() {
+  touch ${_C[status-file]} || {
+    printf "/e/ cannot create ${_C[status-file]} .. exiting ..\n" | tee -a ${_C[log-file]}
+    exit 1
+    }
+
+  ## fix status access
+  chown ${_C[user]}:${_C[group]} ${_C[status-file]}
+  }
+
+
+### backupRemote()
+##
+backupRemote() {
+  ## rsync backups
+  sudo -u ${_C[user]} rsync \
+    -avh \
+    ${_C[src]} \
+    ${_C[dst]}
+    
+  _errCode=${?}
+  
+  
+  ##
+  case ${_errCode} in
+    (0)
+      printf "/i/ deleting ${_C[src]}/* .. \n"
+      rm -rf ${_C[src]}/*
+      delStatusFile
+      ;;
+    (*)
+      printf "/e/ error while backup!! Error: ${_errCode} ..\n" | tee -a ${_C[log-file]}
+      exit ${_errCode}
+      ;;
+    esac
+  }
+
+
+### parseConfig()
+##
+parseConfig() {
+  ## is config exist
+  [[ ! -f ${_config} ]] && {
+    printf "/e/ config ${_conifg} not exist.\n/usage/ config=<path to ${_name}.conf.json> ${_name}\n/e/ for custom config or create ${_config} ..\n" | tee -a "${_C[log-file]}"
+    exit 1
+    }
+
+  ## fill params from config
+  for _param in ${_params}; do
+    __param="`echo ${_param} | tr '.' '-'`"
+    getJsonParam "${_param}" "${__param}"
+    done
+
+  ##
+  [[ ${_debug} != false ]] && {
+    for k v in "${(@kv)_C}"; do
+      printf "/d/ key: ${k}, val: ${v}\n"
+      done
+    }
+  }
+
+
+### setLogDate()
+##
+setLogDate() {
+  printf "=== `date +"%Y-%m-%d %H:%M:%S"`===\n" >> ${_C[log-file]}
+  }
+
+
+
+###
+parseConfig
+checkCmd
+checkLogFile
+setLogDate
+checkStatusFile
+createStatusFile
+backupRemote

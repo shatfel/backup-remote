@@ -1,0 +1,17 @@
+{
+  "user": "backuser",
+  "group": "backuser",
+
+  "src": "/home/backuser/__BACKUPS/",
+  "dst": "backuser@server:~/__BACKUPS/",
+
+  "log": {
+    "file": "/var/log/backup-remote.log",
+    "access": 0660
+    },
+
+  "status": {
+    "file": "/tmp/backup-remote.status",
+    "access": 0660
+    }
+}
